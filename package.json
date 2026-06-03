@@ -1,0 +1,27 @@
+{
+  "name": "env-sweeper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "boxen": "^8.0.1",
+    "cli-spinners": "^3.4.0",
+    "commander": "^15.0.0",
+    "enquirer": "^2.4.1",
+    "fast-glob": "^3.3.3",
+    "ignore": "^7.0.5",
+    "log-update": "^8.0.0",
+    "picocolors": "^1.1.1"
+  },
+  "bin": {
+    "env-sweeper": "./index.js",
+    "env-sweeper-cli": "./index.js"
+  },
+  "type": "module"
+}
