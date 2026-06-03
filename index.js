@@ -8,6 +8,8 @@ import pc from 'picocolors';
 import { Command } from 'commander';
 import boxen from 'boxen';
 import os from 'os';
+import cliSpinners from 'cli-spinners';
+import logUpdate from 'log-update';
 
 const program = new Command();
 
@@ -30,25 +32,41 @@ const BANNER = pc.cyan(`
 `);
 
 const SECRETS = [
-  { name: 'AWS Key', regex: /AKIA[0-9A-Z]{16}/ },
-  { name: 'Stripe Live', regex: /sk_live_[0-9a-zA-Z]{24}/ },
-  { name: 'GitHub Token', regex: /ghp_[0-9a-zA-Z]{36}/ },
-  { name: 'OpenAI API', regex: /sk-[a-zA-Z0-9]{48}/ },
-  { name: 'Generic Password', regex: /password\s*=\s*.+/i },
+  { name: 'AWS Key', regex: /AKIA[0-9A-Z]{16}/g },
+  { name: 'Stripe Live', regex: /sk_live_[0-9a-zA-Z]{24}/g },
+  { name: 'GitHub Token', regex: /ghp_[0-9a-zA-Z]{36}/g },
+  { name: 'OpenAI API', regex: /sk-[a-zA-Z0-9]{48}/g },
+  { name: 'Generic Password', regex: /password\s*=\s*(.+)/ig },
 ];
+
+function maskSecret(secret) {
+  if (secret.length <= 4) return '****';
+  return secret.substring(0, 4) + '*'.repeat(secret.length - 8) + secret.substring(secret.length - 4);
+}
 
 async function scan() {
   const scanPath = options.global ? os.homedir() : process.cwd();
-  console.log(pc.cyan(`\n📡 Sweeping for .env files in ${scanPath}...\n`));
+  
+  const spinner = cliSpinners.dots;
+  let i = 0;
+  const timer = setInterval(() => {
+    logUpdate(pc.cyan(`${spinner.frames[i = ++i % spinner.frames.length]} Sweeping for exposed secrets in ${scanPath}...`));
+  }, spinner.interval);
+
+  const startTime = Date.now();
 
   const entries = await fg(['**/.env*'], {
     cwd: scanPath,
-    ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**'],
+    ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**', '**/Library/**'],
     absolute: true,
     suppressErrors: true
   });
 
-  return entries;
+  clearInterval(timer);
+  logUpdate.clear();
+  
+  const timeTaken = ((Date.now() - startTime) / 1000).toFixed(2);
+  return { entries, timeTaken };
 }
 
 function analyzeFiles(files) {
@@ -57,16 +75,23 @@ function analyzeFiles(files) {
     try {
       const content = fs.readFileSync(file, 'utf8');
       const foundSecrets = [];
+      const previews = [];
       
       for (const secret of SECRETS) {
-        if (secret.regex.test(content)) {
+        const matches = [...content.matchAll(secret.regex)];
+        if (matches.length > 0) {
           foundSecrets.push(secret.name);
+          matches.forEach(m => {
+            const raw = m[0];
+            previews.push(`${secret.name}: ${maskSecret(raw)}`);
+          });
         }
       }
 
       results.push({
         path: file,
         secrets: foundSecrets,
+        previews: previews,
         size: Buffer.byteLength(content, 'utf8')
       });
     } catch (err) {
@@ -80,10 +105,10 @@ async function run() {
   console.log(BANNER);
   console.log(pc.gray(' Architected by @lakshanmuruganandam \n'));
 
-  const files = await scan();
+  const { entries: files, timeTaken } = await scan();
 
   if (files.length === 0) {
-    console.log(pc.green('✨ Clean as a whistle. No .env files found.'));
+    console.log(pc.green(`✨ Clean as a whistle. Scanned in ${timeTaken}s. No .env files found.`));
     process.exit(0);
   }
 
@@ -99,28 +124,29 @@ async function run() {
       ? pc.red(`[CRITICAL: ${f.secrets.join(', ')}]`) 
       : pc.gray(`[${f.size} bytes]`);
     
-    // Convert absolute to relative for display if not global
     const displayPath = options.global ? f.path : path.relative(process.cwd(), f.path);
 
     return {
       name: f.path,
       message: `${nameColored.padEnd(20)} 📁 ${pc.gray(displayPath)}`,
       hint: hint,
-      value: f.path
+      value: f
     };
   });
+
+  console.log(pc.yellow(`⚠️  Found ${files.length} .env files in ${timeTaken}s.`));
 
   const { selected } = await enquirer.prompt({
     type: 'multiselect',
     name: 'selected',
-    message: 'Select exposed .env files to secure (Space to select, Enter to execute):',
+    message: 'Select exposed files to secure (Space to select, Enter to execute):',
     choices: choices,
     result(names) {
       return this.map(names);
     }
   });
 
-  const targets = Object.values(selected);
+  const targets = Object.values(selected); // Array of objects
 
   if (targets.length === 0) {
     console.log(pc.gray('\nRetreating. No files secured.'));
@@ -132,6 +158,7 @@ async function run() {
     name: 'action',
     message: 'What do you want to do with these targets?',
     choices: [
+      { message: '👀 Preview masked secrets before deciding', name: 'preview' },
       { message: '🗑️  Shred them (Permanently Delete)', name: 'delete' },
       { message: '🙈 Add them to .gitignore in their respective folders', name: 'gitignore' },
       { message: '❌ Cancel', name: 'cancel' }
@@ -143,11 +170,41 @@ async function run() {
     process.exit(0);
   }
 
+  if (action === 'preview') {
+    console.log('\n' + pc.cyan('--- SECRET PREVIEWS ---'));
+    for (const t of targets) {
+      console.log(pc.white(`\n📄 ${t.path}`));
+      if (t.previews.length > 0) {
+        t.previews.forEach(p => console.log(pc.red(`  ↳ ${p}`)));
+      } else {
+        console.log(pc.gray('  ↳ No known critical secrets detected (but could still contain local passwords).'));
+      }
+    }
+    console.log(pc.cyan('-----------------------\n'));
+    
+    const { nextAction } = await enquirer.prompt({
+      type: 'select',
+      name: 'nextAction',
+      message: 'Now what?',
+      choices: [
+        { message: '🗑️  Shred them', name: 'delete' },
+        { message: '🙈 Add to .gitignore', name: 'gitignore' },
+        { message: '❌ Cancel', name: 'cancel' }
+      ]
+    });
+    
+    if (nextAction === 'cancel') process.exit(0);
+    var finalAction = nextAction;
+  } else {
+    var finalAction = action;
+  }
+
   console.log();
   let successCount = 0;
 
-  for (const target of targets) {
-    if (action === 'delete') {
+  for (const targetObj of targets) {
+    const target = targetObj.path;
+    if (finalAction === 'delete') {
       try {
         fs.unlinkSync(target);
         console.log(pc.green(`✅ Shredded: `) + pc.white(target));
@@ -155,7 +212,7 @@ async function run() {
       } catch (err) {
         console.log(pc.red(`❌ Failed to shred ${target}: ${err.message}`));
       }
-    } else if (action === 'gitignore') {
+    } else if (finalAction === 'gitignore') {
       try {
         const dir = path.dirname(target);
         const gitignorePath = path.join(dir, '.gitignore');
