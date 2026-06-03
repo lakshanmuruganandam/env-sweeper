@@ -128,8 +128,7 @@ async function run() {
 
     return {
       name: f.path,
-      message: `${nameColored.padEnd(20)} 📁 ${pc.gray(displayPath)}`,
-      hint: hint,
+      message: `${nameColored.padEnd(20)} 📁 ${pc.gray(displayPath)} ${hint}`,
       value: f
     };
   });
@@ -141,6 +140,7 @@ async function run() {
     name: 'selected',
     message: 'Select exposed files to secure (Space to select, Enter to execute):',
     choices: choices,
+    limit: 10,
     result(names) {
       return this.map(names);
     }
