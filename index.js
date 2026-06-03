@@ -140,7 +140,8 @@ async function run() {
     name: 'selected',
     message: 'Select exposed files to secure:',
     choices: choices,
-    pageSize: 10
+    pageSize: 10,
+    loop: false
   }]);
 
   const targets = Object.values(selected); // Array of objects
