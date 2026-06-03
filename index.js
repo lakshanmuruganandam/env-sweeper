@@ -3,7 +3,7 @@
 import fg from 'fast-glob';
 import fs from 'fs';
 import path from 'path';
-import enquirer from 'enquirer';
+import inquirer from 'inquirer';
 import pc from 'picocolors';
 import { Command } from 'commander';
 import boxen from 'boxen';
@@ -135,16 +135,13 @@ async function run() {
 
   console.log(pc.yellow(`⚠️  Found ${files.length} .env files in ${timeTaken}s.`));
 
-  const { selected } = await enquirer.prompt({
-    type: 'multiselect',
+  const { selected } = await inquirer.prompt([{
+    type: 'checkbox',
     name: 'selected',
-    message: 'Select exposed files to secure (Space to select, Enter to execute):',
+    message: 'Select exposed files to secure:',
     choices: choices,
-    limit: 10,
-    result(names) {
-      return this.map(names);
-    }
-  });
+    pageSize: 10
+  }]);
 
   const targets = Object.values(selected); // Array of objects
 
@@ -153,17 +150,17 @@ async function run() {
     process.exit(0);
   }
 
-  const { action } = await enquirer.prompt({
-    type: 'select',
+  const { action } = await inquirer.prompt([{
+    type: 'list',
     name: 'action',
     message: 'What do you want to do with these targets?',
     choices: [
-      { message: '👀 Preview masked secrets before deciding', name: 'preview' },
-      { message: '🗑️  Shred them (Permanently Delete)', name: 'delete' },
-      { message: '🙈 Add them to .gitignore in their respective folders', name: 'gitignore' },
-      { message: '❌ Cancel', name: 'cancel' }
+      { name: '👀 Preview masked secrets before deciding', value: 'preview' },
+      { name: '🗑️  Shred them (Permanently Delete)', value: 'delete' },
+      { name: '🙈 Add them to .gitignore in their respective folders', value: 'gitignore' },
+      { name: '❌ Cancel', value: 'cancel' }
     ]
-  });
+  }]);
 
   if (action === 'cancel') {
     console.log(pc.gray('\nMission aborted.'));
@@ -182,16 +179,16 @@ async function run() {
     }
     console.log(pc.cyan('-----------------------\n'));
     
-    const { nextAction } = await enquirer.prompt({
-      type: 'select',
+    const { nextAction } = await inquirer.prompt([{
+      type: 'list',
       name: 'nextAction',
       message: 'Now what?',
       choices: [
-        { message: '🗑️  Shred them', name: 'delete' },
-        { message: '🙈 Add to .gitignore', name: 'gitignore' },
-        { message: '❌ Cancel', name: 'cancel' }
+        { name: '🗑️  Shred them', value: 'delete' },
+        { name: '🙈 Add to .gitignore', value: 'gitignore' },
+        { name: '❌ Cancel', value: 'cancel' }
       ]
-    });
+    }]);
     
     if (nextAction === 'cancel') process.exit(0);
     var finalAction = nextAction;
